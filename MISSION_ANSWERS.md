@@ -1,6 +1,6 @@
 # MISSION_ANSWERS — Day 14
 
-> Họ tên: Than Duc Trung · MSSV: 2A202603449 · Lớp: K5-L3A
+> Bài cá nhân, lớp K5-L3A. Họ tên và MSSV chỉ ghi ở tên repo và `BENCHMARK_REPORT.md`, theo `RULES.md`.
 
 ---
 
@@ -630,8 +630,25 @@ Dừng Redis:
 **Hạn chế đã biết:**
 - Khi container Redis bị dừng, `/ready` và `/ask` mất **~8 giây** mới trả 503 (log ghi `ms: 8007`). Phần chờ nằm ở bước phân giải DNS của tên `redis` thất bại, nằm ngoài `socket_connect_timeout=2`. Khi Redis từ chối kết nối (như script chấm kiểm tra) thì trả ngay. Chưa xử lý vì không ảnh hưởng tiêu chí.
 - Thời gian dùng cho rate limit lấy từ `time.time()` của từng instance; nhiều instance lệch đồng hồ thì cửa sổ 60 giây lệch theo. Dùng `TIME` của Redis sẽ chính xác hơn.
-- `render.yaml` **chưa kiểm chứng** trên Render thật (loại `keyvalue`, `rootDir`...); sẽ kiểm tra ở CP6 nếu chọn Render. `railway.toml` cũng mới qua kiểm tra tĩnh của script, chưa deploy.
+- `render.yaml` **đã được kiểm chứng trên Render thật** ở CP6: Blueprint tạo được Key Value `agent-redis` và web service `ai-agent` (gói Free), `/health` và `/ready` trả 200, `/ask` không key trả 401 và có key trả 200 (xem Part 3 và `DEPLOYMENT.md`). `railway.toml` thì mới qua kiểm tra tĩnh của script, **chưa deploy lên Railway**.
 
 ## AI log
 
-- Dùng Claude Code để đọc mã nguồn, chạy bản develop/production của Part 1 và soạn nháp mục Part 1. Các output curl và log ở trên là kết quả chạy thật trên máy.
+Công cụ: **Claude Code** (CLI/VS Code, model Claude Sonnet 5.5) dùng xuyên suốt bài này, gồm cả code Part 6. Dưới đây là phần AI làm và cách kiểm tra. Mục "Sinh viên tự làm" ghi những việc tôi trực tiếp thực hiện trên máy và tài khoản của mình.
+
+| Phần | Hỏi AI gì | AI làm gì | Kiểm tra bằng cách nào |
+|---|---|---|---|
+| Part 1–5 | "Đọc code và làm CP1–CP4" | Đọc mã nguồn, chạy bản develop/production, Docker build, compose, `test_stateless.py`; soạn nháp câu trả lời trong `MISSION_ANSWERS.md` | Mọi output curl, log, kích thước image (1 154 MB so với 163 MB, bằng `docker image inspect`), kết quả 401/200/429, SIGTERM đều là kết quả lệnh đã chạy thật. Có hai lần chạy hỏng được phát hiện và làm lại (lỗi mã hoá tiếng Việt qua `curl` trên Windows; lỡ chạy nhầm cổng) |
+| Part 6 (code) | "Làm CP5: hoàn thiện các TODO trong `06-lab-complete/`" | Viết `config.py`, `auth.py`, `redis_client.py`, `rate_limiter.py`, `cost_guard.py`, `logging_config.py`, `main.py`, `Dockerfile`, `.dockerignore`, `docker-compose.yml`, `.env.example`, `railway.toml`, `render.yaml` | Chạy `check_production_ready.py` không sửa: `PASS 12/12` (43/43 check) trong container Linux; kiểm tra thủ công `docker compose up`: 401/200/422/429, mất Redis thì `/ready` 503 |
+| Part 3 | "Hướng dẫn deploy lên Render" | Soạn `render.yaml`, hướng dẫn từng bước, đối chiếu tài liệu Render (phát hiện thiếu `plan: free` nên mặc định là gói trả phí), soạn `DEPLOYMENT.md` | Bốn lệnh kiểm tra do chính tôi chạy: 200, 200, 401, 200 |
+| Part 7 | "Làm CP7 và CP8" | Chạy load test, eval, dựng stack Docker, chạy Locust, thí nghiệm alert A–E, chụp ảnh Grafana/Jaeger/Prometheus bằng trình duyệt tự động, soạn `BENCHMARK_REPORT.md` | Số liệu lấy từ file JSON/CSV; đã chạy một script đối chiếu 26 giá trị trong báo cáo với file gốc: khớp |
+
+**Sai sót của AI đã được phát hiện và sửa trong quá trình làm** (ghi lại để minh bạch):
+- Đọc `scale_1_stats.csv` khi Locust còn đang ghi dở, nên lần in đầu cho số chưa phải số cuối; báo cáo dùng số cuối.
+- Kết luận burn rate $3,9/giờ ở 30 user rồi cho rằng ngưỡng cost luôn bị vượt; sai, vì cửa sổ 5 phút còn dư âm của tải trước. Đo lại trên đường cơ sở sạch được $1,63/giờ; báo cáo đã đính chính.
+- Đoán giả thuyết keep-alive cho mức bão hòa ~38 req/s của `load_test.py`; phép thử bác bỏ giả thuyết, và nguyên nhân gốc **vẫn chưa rõ** (đã ghi trong báo cáo).
+- Đoán nhầm UID dashboard Grafana và dùng Git Bash làm hỏng đường dẫn `/mnt/...` của lệnh Locust; đã sửa.
+
+**Sinh viên tự làm:** tạo tài khoản và Blueprint trên Render, cấp quyền GitHub cho Render, tự chạy bốn lệnh kiểm tra URL public, tự chụp và tải lên ba ảnh deploy (`dashboard.png`, `running.png`, `test.png`), tự push commit `acf731e`.
+
+**Chưa làm / còn hạn chế:** chưa chạy `check_production_ready.py` trong WSL2 thật (kết quả `PASS 12/12` ở Part 6 đến từ container Linux); chưa deploy lên Railway.
