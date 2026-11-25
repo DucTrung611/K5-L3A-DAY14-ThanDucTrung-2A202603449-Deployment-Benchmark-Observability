@@ -217,7 +217,59 @@ Dọn dẹp: `docker compose -p k5-day14-docker down -v`.
 
 ## Part 3: Cloud Deployment
 
-_(chưa làm)_
+### Exercise 3.2 — Deploy lên Render (nền tảng chính)
+
+Theo `CHECKPOINTS.md` (CP6), tôi deploy **agent Part 6** (`06-lab-complete/`), không deploy app mẫu của `03-cloud-deployment/`.
+
+- **URL public:** https://ai-agent-qext.onrender.com
+- **Cách deploy:** Render → New → Blueprint → chọn repo, **Blueprint Path = `06-lab-complete/render.yaml`** (file nằm trong thư mục con nên phải điền đường dẫn). Blueprint tạo hai tài nguyên: web service Docker `ai-agent` và Key Value (Redis) `agent-redis`, cả hai gói Free. Chi tiết xem [DEPLOYMENT.md](DEPLOYMENT.md).
+- **Kết quả 4 lệnh tự kiểm (CP6):**
+
+```text
+GET  /health                    -> 200
+GET  /ready                     -> 200      (Redis nội bộ kết nối được)
+POST /ask  (không có key)       -> 401
+POST /ask  (X-API-Key đúng)     -> 200
+```
+
+- `check_production_ready.py --public-url https://ai-agent-qext.onrender.com`: `✅ Public URL: GET .../health → 200`.
+- `AGENT_API_KEY` do Render tự sinh (`generateValue: true`), `REDIS_URL` tự lấy từ Key Value; không có secret nào trong repo.
+
+**Vấn đề gặp phải khi deploy (để lần sau tránh):**
+1. Render chưa được cài vào tài khoản GitHub nên ô *Connect a repository* trống. Phải cài Render GitHub App và cấp quyền cho repo này.
+2. `render.yaml` ban đầu thiếu `plan`; theo tài liệu Render, bỏ `plan` thì mặc định là **gói trả phí**. Đã thêm `plan: free` cho cả web service lẫn Key Value trước khi Apply.
+3. Gói Free **tắt service sau 15 phút** không có request, khởi động lại mất ~1 phút; Free Key Value **không lưu xuống đĩa** nên bộ đếm rate limit và cost sẽ về 0 khi Redis restart. Chấp nhận được cho bài lab, không dùng cho production thật.
+
+### So sánh `railway.toml` với `render.yaml` (nền tảng còn lại: Railway)
+
+Tôi **chưa deploy lên Railway**; phần này là so sánh hai file cấu hình.
+
+| Khía cạnh | `railway.toml` | `render.yaml` |
+|---|---|---|
+| Phạm vi file | Cấu hình **một service** (build + deploy) | Mô tả **cả hạ tầng** (nhiều service) |
+| Định dạng | TOML (`[build]`, `[deploy]`) | YAML (`services:` là danh sách) |
+| Build | `builder = "DOCKERFILE"`, `dockerfilePath` | `runtime: docker`, `dockerfilePath`, `rootDir` |
+| Health check | `healthcheckPath = "/health"`, `healthcheckTimeout` | `healthCheckPath: /health` |
+| Restart | `restartPolicyType`, `restartPolicyMaxRetries` khai báo trong file | Render tự restart, không khai báo ở đây |
+| Redis | **Không khai báo trong file**, phải thêm Redis qua dashboard/CLI rồi trỏ `REDIS_URL` | Khai báo ngay trong file (`type: keyvalue`) và nối `REDIS_URL` bằng `fromService` |
+| Secret | Không có cơ chế sinh trong file, đặt bằng `railway variables set` | `generateValue: true` tự sinh, hoặc `sync: false` để nhập tay |
+| Gói/chi phí | Không có trường `plan` | Có `plan: free`; **bỏ `plan` là mặc định trả phí** |
+| Thư mục con | Chạy `railway up` ngay trong thư mục chứa file | Cần `rootDir` và điền *Blueprint Path* khi tạo |
+| Cách kích hoạt | CLI `railway up` (đẩy code từ máy) | Blueprint đọc từ GitHub, tự đồng bộ khi file đổi |
+
+**Vì sao khác:** Railway coi file TOML là *cấu hình build/deploy của một service*, còn tài nguyên khác (Redis, DB) và biến môi trường quản lý ngoài file. Render theo hướng **Infrastructure as Code**: một file mô tả toàn bộ stack, nên tái tạo được cả môi trường chỉ từ repo, nhưng cũng nghĩa là sai một dòng (như thiếu `plan`) có thể phát sinh chi phí.
+
+### Exercise 3.3 — Pipeline CI/CD của Cloud Run (chỉ đọc, không deploy)
+
+Đọc `03-cloud-deployment/production-cloud-run/cloudbuild.yaml` và `service.yaml`:
+
+1. **Kích hoạt:** khi push lên `main`, Cloud Build chạy 4 bước theo thứ tự (`waitFor`).
+2. **Test:** container `python:3.11-slim` cài `requirements.txt` + `pytest` rồi chạy `pytest tests/`; test fail thì pipeline dừng, không build.
+3. **Build + Push:** build image Docker gắn hai tag (`$COMMIT_SHA` và `latest`, dùng `--cache-from` để tái dùng layer) rồi push lên `gcr.io/$PROJECT_ID/ai-agent`.
+4. **Deploy:** `gcloud run deploy` bản `$COMMIT_SHA` lên `asia-southeast1`, `min-instances=1` (tránh cold start), `max-instances=10`, 512 MiB, timeout 60s; secret `OPENAI_API_KEY` lấy từ **Secret Manager**.
+5. **`service.yaml`** là định nghĩa dịch vụ dạng Knative: autoscaling (`minScale`/`maxScale`, 80 request đồng thời mỗi instance), tài nguyên CPU/RAM, secret qua `secretKeyRef`, `livenessProbe` gọi `/health` và `startupProbe` gọi `/ready`.
+
+*Nhận xét (đọc file, chưa chạy):* thư mục `tests/` mà bước test cần **không có trong repo này**, nên bước 1 sẽ fail nếu chạy nguyên trạng. Pipeline chỉ truyền secret `OPENAI_API_KEY` mà không có `AGENT_API_KEY` hay `REDIS_URL`, trong khi agent Part 6 cần cả hai. Theo hiểu biết của tôi, Google đang chuyển `gcr.io` (Container Registry) sang Artifact Registry; tôi chưa kiểm chứng điểm này.
 
 ## Part 4: API Security
 

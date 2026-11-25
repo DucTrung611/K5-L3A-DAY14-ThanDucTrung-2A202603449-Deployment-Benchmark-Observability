@@ -26,6 +26,9 @@ RUN chown -R agent:agent /app
 USER agent
 
 ENV PATH=/home/agent/.local/bin:$PATH
+# User `agent` có home là /app nên Python mặc định tìm package ở /app/.local. Phải trỏ
+# PYTHONUSERBASE tới nơi stage builder đã copy vào, nếu không container crash vì thiếu uvicorn.
+ENV PYTHONUSERBASE=/home/agent/.local
 ENV PYTHONPATH=/app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
