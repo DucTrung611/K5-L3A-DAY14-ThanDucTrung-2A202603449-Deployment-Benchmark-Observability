@@ -1,12 +1,34 @@
 # ============================================================
-# TODO (tiêu chí 2): chạy agent + redis bằng một lệnh `docker compose up`
-#   • service agent: build từ Dockerfile, map port 8000, đọc thêm env từ .env
-#     (dùng `required: false` để không có file .env vẫn chạy được)
-#   • service redis: image redis:7-alpine, có healthcheck
-#   • agent có REDIS_URL=redis://redis:6379/0 và depends_on redis
+# Chạy agent + redis bằng một lệnh:   docker compose up --build
+#
+# Cấu hình: Compose tự đọc file .env cùng thư mục để điền các ${BIEN:-mac-dinh} bên dưới.
+# Không có .env thì dùng giá trị mặc định (AGENT_API_KEY rỗng → agent từ chối mọi request /ask).
+#   cp .env.example .env     # rồi đặt AGENT_API_KEY của bạn
+#
+# Cố ý không dùng `env_file: required: false` vì cú pháp đó chỉ có từ Docker Compose 2.24.
 # ============================================================
 services:
   agent:
     build: .
     ports:
-      - "8000:8000"
+      - "${HOST_PORT:-8000}:8000"
+    environment:
+      - PORT=8000
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - AGENT_API_KEY=${AGENT_API_KEY:-}
+      - REDIS_URL=redis://redis:6379/0
+      - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
+      - DAILY_BUDGET_USD=${DAILY_BUDGET_USD:-1.0}
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
